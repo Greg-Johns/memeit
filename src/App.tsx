@@ -65,7 +65,7 @@ export const App = () => (
         {/* <ThemeToggle /> */}
       </div>
     </Flex>
-    <Router basename="/" >
+    <Router basename="/memeit" >
       <Routes>
         <Route path="/" element={<Home/>}/>
         <Route path="/bountys" element={<BountyList />}/>
