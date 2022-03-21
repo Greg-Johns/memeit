@@ -15,27 +15,31 @@ import {
   NumberInputField,
   HStack,
   Button,
+  useToast,
 } from '@chakra-ui/react'
-import { useWeb3React } from '@web3-react/core';
+import { useNavigate } from "react-router-dom";
+import UUID from "node-uuid";
 import { ethers } from 'ethers';
 import { useContext, useState } from 'react';
 import DatePicker from "react-datepicker";
 import { FaEthereum } from 'react-icons/fa';
-import client from '../../services/ethers/client';
+import { doc, setDoc } from "firebase/firestore";
 import StoreContext from '../../store/Store/StoreContext';
-import  styles from './styles.module.css';
+import styles from './styles.module.css';
 import Uploader from './Uploader';
+import { useDb } from '../../hooks/useFirebase';
 
 const Create = () => {
-  const stuff = useWeb3React();
-  console.log('library stuff:', stuff);
+  const db = useDb();
+  const toast = useToast();
+  let navigate = useNavigate();
   const { colorMode } = useColorMode();
   const [appState] = useContext(StoreContext);
   const [startDate, setStartDate] = useState<Date | null>(new Date());
   const [endDate, setEndDate] = useState<Date | null>(null);
   const [title, setTitle] = useState<string>('');
   const [description, setDescription] = useState<string>('');
-  const [prizeAmount, setPrizeAmount] = useState<string>('0');
+  const [prizeAmount, setPrizeAmount] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
   const [files, setFiles] = useState<any>([]);
 
@@ -54,116 +58,119 @@ const Create = () => {
   }
 
   // Methods
-	function sleep(ms: number) {
-		return new Promise(resolve => setTimeout(resolve, ms));
-	}
+  function sleep(ms: number) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
 
-  const volume = 2;
   const [token, setToken] = useState(appState.tokens[0]);
   const [transactionHash, setTransactionHash] = useState(null);
 
   async function fundBounty(bountyAddress: any) {
     console.log('in fundBounty');
     console.log('bountyAddress:', bountyAddress);
-		// setIsLoading(true);
-		const volumeInWei = volume * 10 ** token.decimals;
+    // setIsLoading(true);
+    console.log('parseFloat(prizeAmount):', parseFloat(prizeAmount));
+    console.log('token:', token);
+    const volumeInWei = +prizeAmount * 10 ** token.decimals;
 
-		if (volumeInWei == 0) {
-			// setError({ title: 'Zero Volume Sent', message: 'Must send a greater than 0 volume of tokens.' });
-			// setIsLoading(false);
-			return;
-		}
+    if (volumeInWei == 0) {
+      // setError({ title: 'Zero Volume Sent', message: 'Must send a greater than 0 volume of tokens.' });
+      // setIsLoading(false);
+      return;
+    }
 
-		const bigNumberVolumeInWei = ethers.BigNumber.from(volumeInWei.toString());
+    const bigNumberVolumeInWei = ethers.BigNumber.from(volumeInWei.toString());
+    console.log('bigNumberVolumeInWei:', bigNumberVolumeInWei);
 
-		let approveSucceeded = false;
+    let approveSucceeded = false;
 
-		try {
-			const callerBalance = await appState.client.balanceOf('library', 'account', token.address);
+    try {
+      const callerBalance = await appState.client.balanceOf('library', 'account', token.address);
 
       console.log('callerBalance:', callerBalance);
 
-			if (callerBalance < bigNumberVolumeInWei) {
+      if (callerBalance < bigNumberVolumeInWei) {
         console.log('Funds Too Low');
-				const title = 'Funds Too Low';
-				const message = 'You do not have sufficient funds for this deposit';
-				// setError({ message, title });
-				// setIsLoading(false);
-				// setShowErrorModal(true);
-				return;
-			}
-		} catch (error) {
+        const title = 'Funds Too Low';
+        const message = 'You do not have sufficient funds for this deposit';
+        // setError({ message, title });
+        // setIsLoading(false);
+        // setShowErrorModal(true);
+        return;
+      }
+    } catch (error) {
       console.log('hey error:');
-			console.log(error);
-			const title = 'Error';
-			const message = 'A contract call exception occurred';
-			// setError({ message, title });
-			// setIsLoading(false);
-			// setShowErrorModal(true);
-			return;
-		}
+      console.log(error);
+      const title = 'Error';
+      const message = 'A contract call exception occurred';
+      // setError({ message, title });
+      // setIsLoading(false);
+      // setShowErrorModal(true);
+      return;
+    }
 
-		try {
-			if (token.address != ethers.constants.AddressZero) {
-				await appState.client.approve(
-					'library',
-					bountyAddress,
-					token.address,
-					bigNumberVolumeInWei
-				);
-			}
-			approveSucceeded = true;
-		} catch (error) {
+    try {
+      if (token.address != ethers.constants.AddressZero) {
+        await appState.client.approve(
+          'library',
+          bountyAddress,
+          token.address,
+          bigNumberVolumeInWei
+        );
+      }
+      approveSucceeded = true;
+    } catch (error) {
       console.log('yo error:');
-			const { message, title } = appState.client.handleError(error, { bountyAddress });
+      const { message, title } = appState.client.handleError(error, { bountyAddress });
       console.log('message:', message);
       console.log('title:', title);
-			// setError({ message, title });
-			// setIsLoading(false);
-			// setShowErrorModal(true);
-		}
+      // setError({ message, title });
+      // setIsLoading(false);
+      // setShowErrorModal(true);
+    }
 
     console.log('approveSucceeded:', approveSucceeded);
 
-		if (approveSucceeded) {
-			try {
-				const fundTxnReceipt = await appState.client.fundBounty(
-					'library',
-					bountyAddress,
-					token.address,
-					bigNumberVolumeInWei
-				);
+    if (approveSucceeded) {
+      try {
+        const fundTxnReceipt = await appState.client.fundBounty(
+          'library',
+          bountyAddress,
+          token.address,
+          bigNumberVolumeInWei
+        );
         console.log('fundTxnReceipt:', fundTxnReceipt);
-				setTransactionHash(fundTxnReceipt.transactionHash);
-        console.log(`Successfully funded issue ${bountyAddress} with ${volume} ${token.symbol}!`);
-				// setSuccessMessage(
-				// 	`Successfully funded issue ${bountyAddress} with ${volume} ${token.symbol}!`
-				// );
-				// setShowSuccessModal(true);
-				// refreshBounty();
-				// setIsLoading(false);
-			} catch (error) {
+        setTransactionHash(fundTxnReceipt.transactionHash);
+        console.log(`Successfully funded issue ${bountyAddress} with ${prizeAmount} ${token.symbol}!`);
+        // setSuccessMessage(
+        // 	`Successfully funded issue ${bountyAddress} with ${volume} ${token.symbol}!`
+        // );
+        // setShowSuccessModal(true);
+        // refreshBounty();
+        // setIsLoading(false);
+        return fundTxnReceipt;
+      } catch (error) {
         console.log('hi error:', error);
-				const { message, title } = appState.client.handleError(error, { bountyAddress });
-				// setError({ message, title });
-				// setIsLoading(false);
-				// setShowErrorModal(true);
-			}
-		}
-	}
+        const { message, title } = appState.client.handleError(error, { bountyAddress });
+        // setError({ message, title });
+        // setIsLoading(false);
+        // setShowErrorModal(true);
+      }
+    }
+  }
 
   // console.log('library', library);
-  async function mintBounty() {
+  async function mintBounty(uuid: string) {
     console.log('minting bounty');
-		try {
-			// setMintBountyState(TRANSACTION_PENDING());
+    try {
+      // setMintBountyState(TRANSACTION_PENDING());
 
       // console.log('library', library);
-			const { bountyAddress, txnResponse } = await appState.client.mintBounty(
-				'library',
-				'randomid', // mintBountyState.issueId,
-				'randomOrgName', // mintBountyState.orgName
-			);
+      const { bountyAddress } = await appState.client.mintBounty(
+        'library',
+        uuid, // mintBountyState.issueId,
+        'randomOrgName', // mintBountyState.orgName
+      );
 
       console.log('bountyAddress:', bountyAddress);
 
@@ -174,43 +181,43 @@ const Create = () => {
 
       // console.log('realAddress:', realAddress);
 
-      await fundBounty('0xae5f742b45809dacc419b88c6b13859c85567737');
       // await fundBounty(realAddress);
 
-			// let bountyId = null;
-			// while (bountyId == 'undefined') {
-			// 	const bountyResp = await appState.openQSubgraphClient.getBounty(bountyAddress);
-			// 	bountyId = bountyResp?.bountyId;
-			// 	console.log('bountyId', bountyId);
-			// 	await sleep(500);
-			// }
+      // let bountyId = null;
+      // while (bountyId == 'undefined') {
+      // 	const bountyResp = await appState.openQSubgraphClient.getBounty(bountyAddress);
+      // 	bountyId = bountyResp?.bountyId;
+      // 	console.log('bountyId', bountyId);
+      // 	await sleep(500);
+      // }
 
-			// await sleep(1000);
+      // await sleep(1000);
 
       console.log('done')
+      return bountyAddress;
 
-			// router.push(
-			// 	`${process.env.NEXT_PUBLIC_BASE_URL}/bounty/${bountyAddress}`
-			// );
-		} catch (error) {
-			console.log('error in mintboutny', error);
-			const { message, title } = appState.client.handleError(error);
+      // router.push(
+      // 	`${process.env.NEXT_PUBLIC_BASE_URL}/bounty/${bountyAddress}`
+      // );
+    } catch (error) {
+      console.log('error in mintboutny', error);
+      const { message, title } = appState.client.handleError(error);
       console.log('message', message);
       console.log('title', title);
-			// setMintBountyState(TRANSACTION_FAILURE({ message, title }));
-		}
-	}
+      // setMintBountyState(TRANSACTION_FAILURE({ message, title }));
+    }
+  }
 
   const handleSubmit = async (e: any) => {
     e.preventDefault();
-    await mintBounty();
     setLoading(true);
+    const uuid = UUID.v4();
     setTitleInvalid(false);
     setStartDateInvalid(false);
     setEndDateInvalid(false);
     setPrizeAmountInvalid(false);
     console.log('endDate', endDate);
-    if (title === '' || !startDate || !endDate || !prizeAmount || prizeAmount === '0' ) {
+    if (title === '' || !startDate || !endDate || !prizeAmount || prizeAmount === '0') {
       setLoading(false);
     }
     if (title === '') {
@@ -225,34 +232,49 @@ const Create = () => {
       setEndDateInvalid(true);
       return;
     }
-    if (!prizeAmount || prizeAmount === '0' ) {
+    if (!prizeAmount || prizeAmount === '0') {
       setPrizeAmountInvalid(true);
       return;
     }
     if (startDate && endDate && startDate > endDate) {
       setStartDateInvalid(true);
     }
-    const bounty = {
-      title,
-      description,
-      prizeAmount,
-      startDate,
-      endDate,
-    };
     console.log('files', files);
-    console.log('bounty', bounty);
-    // await mintBounty();
-    // let bountyId = null;
-    // while (bountyId == 'undefined') {
-    //   const bountyResp = await appState.openQSubgraphClient.getBounty(bountyAddress);
-    //   bountyId = bountyResp?.bountyId;
-    //   console.log('bountyId', bountyId);
-    //   await sleep(500);
-    // }
+    console.log(`endDate ${endDate}`)
+    // TODO: wrap mint bounty in try/catch
+    const bountyAddress = await mintBounty(uuid);
+    console.log('bountyAddress:', bountyAddress)
+    const fundTxnReceipt = await fundBounty(bountyAddress);
+    // upload to firebase
+    console.log('uploading to firebase');
+    try {
+      if (db) {
+        await setDoc(doc(db, "bounties", uuid), {
+          id: uuid,
+          title,
+          description,
+          prizeAmount: { amount: parseInt(prizeAmount), contract: token.address },
+          startDate,
+          endDate,
+          exampleImages: files,
+          postedBy: fundTxnReceipt.from,
+        });
+      } else { console.log('error no db') }
+    } catch (error) {
+      console.log('error uploading to firebase', error);
+    }
 
     // await sleep(1000);
     console.log('finished submtting');
     setLoading(false);
+    navigate(`/challenge/${uuid}`);
+    toast({
+      title: 'Challenge Created.',
+      description: "You challenge has been created successfully!",
+      status: 'success',
+      duration: 9000,
+      isClosable: true,
+    })
   };
 
   // const from = "0x04E7831739bA350b17E36541148368f8541552d6";
@@ -265,15 +287,8 @@ const Create = () => {
   // console.log('realAddress:', realAddress);
 
   return (
-    <Box
-      m="0 auto"
-      padding={{ base: "30px 5px", md: "30px 40px", lg: "30px 60px", xl: "30px 80px" }}
-      maxWidth="1600px"
-    >
-      <Heading as="h1" size="xl">
-        Create a Challenge
-      </Heading>
-      <VStack spacing={8}>
+    <main className='createStuff'>
+      <h3>- CREATE BOUNTY -</h3>
         <FormControl mt={45} isRequired isInvalid={titleInvalid}>
           <FormLabel>Title:</FormLabel>
           <Input
@@ -297,17 +312,12 @@ const Create = () => {
           />
         </FormControl>
 
-        <FormControl>
+        {/* <FormControl>
           <FormLabel>Good Example images:</FormLabel>
           <Uploader handleChangeStatus={handleChangeStatus} />
-        </FormControl>
+        </FormControl> */}
 
-        <Grid
-          gap={10}
-          templateColumns='repeat(2, 1fr)'
-          alignSelf="flex-start"
-        >
-          <GridItem colSpan={{ base: 2, md: 1 }}>
+
             <FormControl isRequired isInvalid={startDateInvalid}>
               <FormLabel>Start Date:</FormLabel>
               <DatePicker
@@ -323,7 +333,6 @@ const Create = () => {
                 <FormErrorMessage>Start date is required and must be before end date.</FormErrorMessage>
               )}
             </FormControl>
-          </GridItem>
 
           <GridItem colSpan={{ base: 2, md: 1 }}>
             <FormControl isRequired isInvalid={endDateInvalid}>
@@ -342,7 +351,6 @@ const Create = () => {
               )}
             </FormControl>
           </GridItem>
-        </Grid>
 
         <FormControl isRequired isInvalid={prizeAmountInvalid}>
           <FormLabel>Prize Amount:</FormLabel>
@@ -375,11 +383,9 @@ const Create = () => {
           type='submit'
           onClick={handleSubmit}
         >
-          Create Challenge
+          Create Bounty
         </Button>
-
-      </VStack>
-    </Box>
+    </main>
   )
 };
 
